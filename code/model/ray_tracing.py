@@ -136,7 +136,7 @@ class RayTracing(nn.Module):
      
         # States of forward and backward ray tracing
         # 1. finished
-           # 1.1 curr_sdf_val inside [0, sdf_threshold]
+           # 1.1 curr_sdf_val inside [0, sdf_threshold], inside bounding box
            # 1.2 problematic: curr_sdf_val < 0
            # 1.3 problematic: outside bounding box
         # 2. unfinished: curr_sdf_val > sdf_threshold, and still inside bounding box
@@ -205,7 +205,6 @@ class RayTracing(nn.Module):
                 not_proj_iters += 1
 
         convergent_mask = mask_intersect.reshape(-1) & (next_sdf_start >= 0) & (next_sdf_start <= self.sdf_threshold) & (acc_start_dis < acc_end_dis) 
-        secant_mask = unfinished_mask_start
         
         return convergent_mask, curr_start_points, unfinished_mask_start, acc_start_dis, acc_end_dis, min_dis, max_dis
 
