@@ -76,7 +76,7 @@ class RayTracing(nn.Module):
         out_mask = ~object_mask & ~sampler_mask
 
         mask_left_out = (in_mask | out_mask) & ~mask_intersect
-        if mask_left_out.sum() > 0:  # project the origin to the not intersect points on the sphere
+        if mask_left_out.sum() > 0:  # for rays not intersecting with the bounding sphere, project the origin to these rays
             cam_left_out = cam_loc.unsqueeze(1).repeat(1, num_pixels, 1).reshape(-1, 3)[mask_left_out]
             rays_left_out = ray_directions[mask_left_out]
             acc_start_dis[mask_left_out] = -torch.bmm(rays_left_out.view(-1, 1, 3), cam_left_out.view(-1, 3, 1)).squeeze()
