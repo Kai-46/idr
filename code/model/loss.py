@@ -30,9 +30,9 @@ class IDRLoss(nn.Module):
         mask = ~(network_object_mask & object_mask)
         if mask.sum() == 0:
             return torch.tensor(0.0).cuda().float()
-        sdf_pred = -self.alpha * sdf_output[mask]
+        sdf_pred = -self.alpha * sdf_output[mask].squeeze(-1)
         gt = object_mask[mask].float()
-        mask_loss = (1 / self.alpha) * F.binary_cross_entropy_with_logits(sdf_pred.squeeze(), gt, reduction='sum') / float(object_mask.shape[0])
+        mask_loss = (1 / self.alpha) * F.binary_cross_entropy_with_logits(sdf_pred, gt, reduction='sum') / float(object_mask.shape[0])
         return mask_loss
 
     def forward(self, model_outputs, ground_truth):
