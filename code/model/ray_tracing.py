@@ -131,14 +131,19 @@ class RayTracing(nn.Module):
 
         next_sdf_end = torch.zeros_like(acc_end_dis).cuda()
         next_sdf_end[unfinished_mask_end] = sdf(curr_end_points[unfinished_mask_end])
-
-        # States of rays after sphere tracing
-        # 1. convergent: curr_sdf_start is inside [0, sdf_threshold], and acc_start_dis < acc_end_dis
-        # 2. non-convegent, but fixable with secant: curr_sdf_start > sdf_threshold, and acc_start_dis < acc_end_dis
-        # 3. non-convegent, non-fixable: acc_start_dis >= acc_end_dis, or curr_sdf_start < 0
- 
-        # States of ray tracing
         
+        # Reasons for double-direction ray tracing: shrink search range for secant if non-convergent
+     
+        # States of forward and backward ray tracing
+        # 1. finished: curr_sdf_val inside [0, sdf_threshold]
+        # 2. unfinished: curr_sdf_val > sdf_threshold
+        # 3. problematic: curr_sdf_val < 0
+        
+        # States of rays after sphere tracing
+        # 1. convergent: curr_sdf_start is inside [0, sdf_threshold], and acc_start_dis < acc_end_dis (foward-(1), backward-(1,2,3))
+        # 2. non-convegent, but fixable with secant: curr_sdf_start > sdf_threshold, and acc_start_dis < acc_end_dis (forward-(2), backward-(1,2,3))
+        # 3. non-convegent, non-fixable: acc_start_dis >= acc_end_dis, or curr_sdf_start < 0 (forward-(3), or other possibilities)
+ 
         while True:
             # Update sdf
             curr_sdf_start = torch.zeros_like(acc_start_dis).cuda()
