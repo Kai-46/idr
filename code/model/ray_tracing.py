@@ -39,7 +39,7 @@ class RayTracing(nn.Module):
 
         network_object_mask = (acc_start_dis < acc_end_dis)
 
-        # The non convergent rays should be handled by the sampler
+        # The non convergent rays should be handled by the sampler; non convergent rays refer to those for which sphere-tracining termination points' SDF values are bigger than threshold
         sampler_mask = unfinished_mask_start
         sampler_net_obj_mask = torch.zeros_like(sampler_mask).bool().cuda()
         if sampler_mask.sum() > 0:
