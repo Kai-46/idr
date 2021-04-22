@@ -218,7 +218,7 @@ class RayTracing(nn.Module):
         sampler_dists[mask_intersect_idx] = pts_intervals[torch.arange(pts_intervals.shape[0]), sampler_pts_ind]
 
         true_surface_pts = object_mask[sampler_mask]
-        net_surface_pts = (sdf_val[torch.arange(sdf_val.shape[0]), sampler_pts_ind] < 0)
+        net_surface_pts = (sdf_val[torch.arange(sdf_val.shape[0]), sampler_pts_ind] < 0) # rays with sign transition, implicitly assume there must exsit positive sdf
 
         # take points with minimal SDF value for P_out pixels
         p_out_mask = ~(true_surface_pts & net_surface_pts)
