@@ -232,13 +232,16 @@ class RayTracing(nn.Module):
             sdf_val_all.append(sdf(pnts))
         sdf_val = torch.cat(sdf_val_all).reshape(-1, self.n_steps)
 
+        # assume first point must have positive SDF values
+        assert (sdf_val[:, 0] > 0).all(), 'first point along each ray must be positive'
+        
         tmp = torch.sign(sdf_val) * torch.arange(self.n_steps, 0, -1).cuda().float().reshape((1, self.n_steps))  # Force argmin to return the first min value
         sampler_pts_ind = torch.argmin(tmp, -1)
         sampler_pts[mask_intersect_idx] = points[torch.arange(points.shape[0]), sampler_pts_ind, :]
         sampler_dists[mask_intersect_idx] = pts_intervals[torch.arange(pts_intervals.shape[0]), sampler_pts_ind]
 
         true_surface_pts = object_mask[sampler_mask]
-        net_surface_pts = (sdf_val[torch.arange(sdf_val.shape[0]), sampler_pts_ind] < 0) # rays with sign transition, implicitly assume there must exsit positive sdf
+        net_surface_pts = (sdf_val[torch.arange(sdf_val.shape[0]), sampler_pts_ind] < 0) # rays with sign transition
 
         # take points with minimal SDF value for P_out pixels
         p_out_mask = ~(true_surface_pts & net_surface_pts)
@@ -259,7 +262,7 @@ class RayTracing(nn.Module):
             # Get secant z predictions
             z_high = pts_intervals[torch.arange(pts_intervals.shape[0]), sampler_pts_ind][secant_pts]
             sdf_high = sdf_val[torch.arange(sdf_val.shape[0]), sampler_pts_ind][secant_pts]
-            z_low = pts_intervals[secant_pts][torch.arange(n_secant_pts), sampler_pts_ind[secant_pts] - 1] # something is wrong if first point has negative sdf
+            z_low = pts_intervals[secant_pts][torch.arange(n_secant_pts), sampler_pts_ind[secant_pts] - 1]
             sdf_low = sdf_val[secant_pts][torch.arange(n_secant_pts), sampler_pts_ind[secant_pts] - 1]
             cam_loc_secant = cam_loc.unsqueeze(1).repeat(1, num_pixels, 1).reshape((-1, 3))[mask_intersect_idx[secant_pts]]
             ray_directions_secant = ray_directions.reshape((-1, 3))[mask_intersect_idx[secant_pts]]
