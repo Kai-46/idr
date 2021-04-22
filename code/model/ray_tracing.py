@@ -239,7 +239,7 @@ class RayTracing(nn.Module):
             # Get secant z predictions
             z_high = pts_intervals[torch.arange(pts_intervals.shape[0]), sampler_pts_ind][secant_pts]
             sdf_high = sdf_val[torch.arange(sdf_val.shape[0]), sampler_pts_ind][secant_pts]
-            z_low = pts_intervals[secant_pts][torch.arange(n_secant_pts), sampler_pts_ind[secant_pts] - 1]
+            z_low = pts_intervals[secant_pts][torch.arange(n_secant_pts), sampler_pts_ind[secant_pts] - 1] # something is wrong if first point has negative sdf
             sdf_low = sdf_val[secant_pts][torch.arange(n_secant_pts), sampler_pts_ind[secant_pts] - 1]
             cam_loc_secant = cam_loc.unsqueeze(1).repeat(1, num_pixels, 1).reshape((-1, 3))[mask_intersect_idx[secant_pts]]
             ray_directions_secant = ray_directions.reshape((-1, 3))[mask_intersect_idx[secant_pts]]
@@ -253,8 +253,9 @@ class RayTracing(nn.Module):
 
     def secant(self, sdf_low, sdf_high, z_low, z_high, cam_loc, ray_directions, sdf):
         ''' Runs the secant method for interval [z_low, z_high] for n_secant_steps '''
-
-        z_pred = - sdf_low * (z_high - z_low) / (sdf_high - sdf_low) + z_low
+        z_pred = z_low.clone()
+        mask = (sdf_high - sdf_low) > 1e-10
+        z_pred[mask] = (- sdf_low * (z_high - z_low) / (sdf_high - sdf_low) + z_low)[mask]
         for i in range(self.n_secant_steps):
             p_mid = cam_loc + z_pred.unsqueeze(-1) * ray_directions
             sdf_mid = sdf(p_mid)
@@ -262,12 +263,12 @@ class RayTracing(nn.Module):
             if ind_low.sum() > 0:
                 z_low[ind_low] = z_pred[ind_low]
                 sdf_low[ind_low] = sdf_mid[ind_low]
-            ind_high = sdf_mid < 0
+            ind_high = sdf_mid <= 0
             if ind_high.sum() > 0:
                 z_high[ind_high] = z_pred[ind_high]
                 sdf_high[ind_high] = sdf_mid[ind_high]
-
-            z_pred = - sdf_low * (z_high - z_low) / (sdf_high - sdf_low) + z_low
+            mask = (sdf_high - sdf_low) > 1e-10
+            z_pred[mask] = (- sdf_low * (z_high - z_low) / (sdf_high - sdf_low) + z_low)[mask]
 
         return z_pred
 
