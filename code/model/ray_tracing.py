@@ -84,10 +84,9 @@ class RayTracing(nn.Module):
             curr_start_points[mask_left_out] = cam_left_out + acc_start_dis[mask_left_out].unsqueeze(1) * rays_left_out
 
         mask = (in_mask | out_mask) & mask_intersect
-
         if mask.sum() > 0:
+            # non-object pixels that haven't been densely sampled, we truncate the ray until the last forward ray tracing point
             min_dis[network_object_mask & out_mask] = acc_start_dis[network_object_mask & out_mask]
-
             min_mask_points, min_mask_dist = self.minimal_sdf_points(num_pixels, sdf, cam_loc, ray_directions, mask, min_dis, max_dis)
 
             curr_start_points[mask] = min_mask_points
@@ -95,7 +94,8 @@ class RayTracing(nn.Module):
 
         return curr_start_points, \
                network_object_mask, \
-               acc_start_dis
+               acc_start_dis, \
+               mask_intersect
 
 
     def sphere_tracing(self, batch_size, num_pixels, sdf, cam_loc, ray_directions, mask_intersect, sphere_intersections):
