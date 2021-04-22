@@ -67,7 +67,8 @@ class RayTracing(nn.Module):
         if not self.training:
             return curr_start_points, \
                    network_object_mask, \
-                   acc_start_dis
+                   acc_start_dis, \
+                   mask_intersect
 
         ray_directions = ray_directions.reshape(-1, 3)
         mask_intersect = mask_intersect.reshape(-1)
