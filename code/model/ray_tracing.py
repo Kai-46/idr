@@ -156,7 +156,7 @@ class RayTracing(nn.Module):
             curr_start_points = (cam_loc.unsqueeze(1) + acc_start_dis.reshape(batch_size, num_pixels, 1) * ray_directions).reshape(-1, 3)
             curr_end_points = (cam_loc.unsqueeze(1) + acc_end_dis.reshape(batch_size, num_pixels, 1) * ray_directions).reshape(-1, 3)
 
-            # Fix points which wrongly crossed the surface
+            # Fix points which wrongly crossed the surface; make sure curr_start_points and curr_end_points always have positive SDF values
             next_sdf_start = torch.zeros_like(acc_start_dis).cuda()
             next_sdf_start[unfinished_mask_start] = sdf(curr_start_points[unfinished_mask_start])
 
