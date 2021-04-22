@@ -243,18 +243,6 @@ class RayTracing(nn.Module):
         true_surface_pts = object_mask[sampler_mask]
         net_surface_pts = (sdf_val[torch.arange(sdf_val.shape[0]), sampler_pts_ind] <= 0) # rays with sign transition
 
-        # take points with minimal SDF value for P_out pixels
-        p_out_mask = ~(true_surface_pts & net_surface_pts)
-        n_p_out = p_out_mask.sum()
-        if n_p_out > 0:
-            out_pts_idx = torch.argmin(sdf_val[p_out_mask, :], -1)
-            sampler_pts[mask_intersect_idx[p_out_mask]] = points[p_out_mask, :, :][torch.arange(n_p_out), out_pts_idx, :]
-            sampler_dists[mask_intersect_idx[p_out_mask]] = pts_intervals[p_out_mask, :][torch.arange(n_p_out), out_pts_idx]
-
-        # Get Network object mask
-        sampler_net_obj_mask = sampler_mask.clone()
-        sampler_net_obj_mask[mask_intersect_idx[~net_surface_pts]] = False
-
         # Run Secant method
         secant_pts = net_surface_pts & true_surface_pts if self.training else net_surface_pts
         n_secant_pts = secant_pts.sum()
@@ -267,11 +255,24 @@ class RayTracing(nn.Module):
             cam_loc_secant = cam_loc.unsqueeze(1).repeat(1, num_pixels, 1).reshape((-1, 3))[mask_intersect_idx[secant_pts]]
             ray_directions_secant = ray_directions.reshape((-1, 3))[mask_intersect_idx[secant_pts]]
             z_pred_secant, sdf_pred_secant = self.secant(sdf_low, sdf_high, z_low, z_high, cam_loc_secant, ray_directions_secant, sdf)
-            secant_pts = secant_pts & (sdf_pred_secant >= 0.) & (sdf_pred_secant <= self.sdf_threshold)
-           
+            invalid = (sdf_pred_secant < 0.) | (sdf_pred_secant > self.sdf_threshold)
+            secant_pts[secant_pts][invalid] = False 
+            
             # Get points
             sampler_pts[mask_intersect_idx[secant_pts]] = cam_loc_secant + z_pred_secant.unsqueeze(-1) * ray_directions_secant
             sampler_dists[mask_intersect_idx[secant_pts]] = z_pred_secant
+            
+        # take points with minimal SDF value for P_out pixels
+        p_out_mask = ~secant_pts
+        n_p_out = p_out_mask.sum()
+        if n_p_out > 0:
+            out_pts_idx = torch.argmin(sdf_val[p_out_mask, :], -1)
+            sampler_pts[mask_intersect_idx[p_out_mask]] = points[p_out_mask, :, :][torch.arange(n_p_out), out_pts_idx, :]
+            sampler_dists[mask_intersect_idx[p_out_mask]] = pts_intervals[p_out_mask, :][torch.arange(n_p_out), out_pts_idx]
+
+        # Get Network object mask
+        sampler_net_obj_mask = sampler_mask.clone()
+        sampler_net_obj_mask[mask_intersect_idx[p_out_mask]] = False
 
         return sampler_pts, sampler_net_obj_mask, sampler_dists
 
