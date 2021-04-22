@@ -180,10 +180,12 @@ class IDRNetwork(nn.Module):
 
         self.implicit_network.eval()
         with torch.no_grad():
-            points, network_object_mask, dists = self.ray_tracer(sdf=lambda x: self.implicit_network(x)[:, 0],
+            points, network_object_mask, dists, mask_intersect = self.ray_tracer(sdf=lambda x: self.implicit_network(x)[:, 0],
                                                                  cam_loc=cam_loc,
                                                                  object_mask=object_mask,
                                                                  ray_directions=ray_dirs)
+            object_mask = object_mask & mask_intersect
+
         self.implicit_network.train()
 
         points = (cam_loc.unsqueeze(1) + dists.reshape(batch_size, num_pixels, 1) * ray_dirs).reshape(-1, 3)
