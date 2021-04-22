@@ -34,11 +34,11 @@ class RayTracing(nn.Module):
 
         sphere_intersections, mask_intersect = rend_util.get_sphere_intersection(cam_loc, ray_directions, r=self.object_bounding_sphere)
 
-        curr_start_points, unfinished_mask_start, acc_start_dis, acc_end_dis, min_dis, max_dis = \
+        network_object_mask, curr_start_points, unfinished_mask_start, acc_start_dis, acc_end_dis, min_dis, max_dis = \
             self.sphere_tracing(batch_size, num_pixels, sdf, cam_loc, ray_directions, mask_intersect, sphere_intersections)
 
-        network_object_mask = (acc_start_dis < acc_end_dis)
-
+        sphere_tracing_cnt = network_object_mask.sum()
+        
         # The non convergent rays should be handled by the sampler; non convergent rays refer to those for which sphere-tracining termination points' SDF values are bigger than threshold
         sampler_mask = unfinished_mask_start
         sampler_net_obj_mask = torch.zeros_like(sampler_mask).bool().cuda()
@@ -60,8 +60,8 @@ class RayTracing(nn.Module):
             network_object_mask[sampler_mask] = sampler_net_obj_mask[sampler_mask]
 
         print('----------------------------------------------------------------')
-        print('RayTracing: object = {0}/{1}, secant on {2}/{3}.'
-              .format(network_object_mask.sum(), len(network_object_mask), sampler_net_obj_mask.sum(), sampler_mask.sum()))
+        print('RayTracing: object = {}/{}, sphere_tracing = {}, secant = {}/{}.'
+              .format(network_object_mask.sum(), len(network_object_mask), sphere_tracing_cnt, sampler_net_obj_mask.sum(), sampler_mask.sum()))
         print('----------------------------------------------------------------')
 
         if not self.training:
@@ -72,7 +72,8 @@ class RayTracing(nn.Module):
         ray_directions = ray_directions.reshape(-1, 3)
         mask_intersect = mask_intersect.reshape(-1)
 
-        in_mask = ~network_object_mask & object_mask & ~sampler_mask
+        # For non-object pixels, or object pixels with no intersection found, we have to densely sample the rays.
+        in_mask = object_mask & ~network_object_mask & ~sampler_mask
         out_mask = ~object_mask & ~sampler_mask
 
         mask_left_out = (in_mask | out_mask) & ~mask_intersect
@@ -103,7 +104,6 @@ class RayTracing(nn.Module):
         sphere_intersections_points = cam_loc.reshape(batch_size, 1, 1, 3) + sphere_intersections.unsqueeze(-1) * ray_directions.unsqueeze(2)
         unfinished_mask_start = mask_intersect.reshape(-1).clone()
         unfinished_mask_end = mask_intersect.reshape(-1).clone()
-        convergent_mask = mask_intersect.reshape(-1).clone()
         
         # assume initial start and end points both have positive SDF values
  
@@ -135,9 +135,11 @@ class RayTracing(nn.Module):
         # Reasons for double-direction ray tracing: shrink search range for secant if non-convergent
      
         # States of forward and backward ray tracing
-        # 1. finished: curr_sdf_val inside [0, sdf_threshold]
-        # 2. unfinished: curr_sdf_val > sdf_threshold
-        # 3. problematic: curr_sdf_val < 0
+        # 1. finished
+           # 1.1 curr_sdf_val inside [0, sdf_threshold]
+           # 1.2 problematic: curr_sdf_val < 0
+           # 1.3 problematic: outside bounding box
+        # 2. unfinished: curr_sdf_val > sdf_threshold, and still inside bounding box
         
         # States of rays after sphere tracing
         # 1. convergent: curr_sdf_start is inside [0, sdf_threshold], and acc_start_dis < acc_end_dis (foward-(1), backward-(1,2,3))
@@ -148,16 +150,13 @@ class RayTracing(nn.Module):
             # Update sdf
             curr_sdf_start = torch.zeros_like(acc_start_dis).cuda()
             curr_sdf_start[unfinished_mask_start] = next_sdf_start[unfinished_mask_start]
-            curr_sdf_start[curr_sdf_start <= self.sdf_threshold] = 0                # why making negative sdf zero?
 
             curr_sdf_end = torch.zeros_like(acc_end_dis).cuda()
             curr_sdf_end[unfinished_mask_end] = next_sdf_end[unfinished_mask_end]
-            curr_sdf_end[curr_sdf_end <= self.sdf_threshold] = 0
 
             # Update masks
-            unfinished_mask_start = unfinished_mask_start & (curr_sdf_start > self.sdf_threshold)
-            unfinished_mask_end = unfinished_mask_end & (curr_sdf_end > self.sdf_threshold)
-            convergent_mask = convergent_mask & (curr_sdf_start >= 0) & (curr_sdf_start < self.sdf_threshold)
+            unfinished_mask_start = unfinished_mask_start & (curr_sdf_start > self.sdf_threshold) & (acc_start_dis < acc_end_dis) 
+            unfinished_mask_end = unfinished_mask_end & (curr_sdf_end > self.sdf_threshold) & (acc_start_dis < acc_end_dis) 
 
             if (unfinished_mask_start.sum() == 0 and unfinished_mask_end.sum() == 0) or iters == self.sphere_tracing_iters:
                 break
@@ -165,8 +164,13 @@ class RayTracing(nn.Module):
 
             # Make step
             # Update distance
-            acc_start_dis = acc_start_dis + curr_sdf_start
-            acc_end_dis = acc_end_dis - curr_sdf_end
+            march_dist = curr_sdf_start.clone()
+            march_dist[march_dist <= self.sdf_threshold] = 0.    # stop marching forward if close enough to surface from outside, or already inside surface
+            acc_start_dis = acc_start_dis + march_dist
+            
+            march_dist = curr_sdf_end.clone()
+            march_dist[march_dist <= self.sdf_threshold] = 0.
+            acc_end_dis = acc_end_dis - march_dist
 
             # Update points
             curr_start_points = (cam_loc.unsqueeze(1) + acc_start_dis.reshape(batch_size, num_pixels, 1) * ray_directions).reshape(-1, 3)
@@ -200,11 +204,10 @@ class RayTracing(nn.Module):
                 not_projected_end = next_sdf_end < 0
                 not_proj_iters += 1
 
-            not_projected = (~not_projected_start) & (~not_projected_end)
-            has_gap = acc_start_dis < acc_end_dis
-            unfinished_mask_start = unfinished_mask_start & has_gap & not_projected
-            unfinished_mask_end = unfinished_mask_end & has_gap & not_projected
-        return curr_start_points, unfinished_mask_start, acc_start_dis, acc_end_dis, min_dis, max_dis
+        convergent_mask = mask_intersect.reshape(-1) & (next_sdf_start >= 0) & (next_sdf_start <= self.sdf_threshold) & (acc_start_dis < acc_end_dis) 
+        secant_mask = unfinished_mask_start
+        
+        return convergent_mask, curr_start_points, unfinished_mask_start, acc_start_dis, acc_end_dis, min_dis, max_dis
 
     def ray_sampler(self, sdf, cam_loc, object_mask, ray_directions, sampler_min_max, sampler_mask):
         ''' Sample the ray in a given range and run secant on rays which have sign transition '''
