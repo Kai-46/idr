@@ -167,6 +167,7 @@ class RayTracing(nn.Module):
             not_projected_end = next_sdf_end < 0
             not_proj_iters = 0
             while (not_projected_start.sum() > 0 or not_projected_end.sum() > 0) and not_proj_iters < self.line_step_iters:
+                # when not_proj_iters go to infinity, one can show that acc_start_dis and acc_end_dis reverses back to previous sphere tracing location
                 # Step backwards
                 acc_start_dis[not_projected_start] -= ((1 - self.line_search_step) / (2 ** not_proj_iters)) * curr_sdf_start[not_projected_start]
                 curr_start_points[not_projected_start] = (cam_loc.unsqueeze(1) + acc_start_dis.reshape(batch_size, num_pixels, 1) * ray_directions).reshape(-1, 3)[not_projected_start]
