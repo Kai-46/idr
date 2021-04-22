@@ -240,7 +240,7 @@ class RayTracing(nn.Module):
         sampler_dists[mask_intersect_idx] = pts_intervals[torch.arange(pts_intervals.shape[0]), sampler_pts_ind]
 
         true_surface_pts = object_mask[sampler_mask]
-        net_surface_pts = (sdf_val[torch.arange(sdf_val.shape[0]), sampler_pts_ind] < 0) # rays with sign transition
+        net_surface_pts = (sdf_val[torch.arange(sdf_val.shape[0]), sampler_pts_ind] <= 0) # rays with sign transition
 
         # take points with minimal SDF value for P_out pixels
         p_out_mask = ~(true_surface_pts & net_surface_pts)
@@ -265,8 +265,9 @@ class RayTracing(nn.Module):
             sdf_low = sdf_val[secant_pts][torch.arange(n_secant_pts), sampler_pts_ind[secant_pts] - 1]
             cam_loc_secant = cam_loc.unsqueeze(1).repeat(1, num_pixels, 1).reshape((-1, 3))[mask_intersect_idx[secant_pts]]
             ray_directions_secant = ray_directions.reshape((-1, 3))[mask_intersect_idx[secant_pts]]
-            z_pred_secant = self.secant(sdf_low, sdf_high, z_low, z_high, cam_loc_secant, ray_directions_secant, sdf)
-
+            z_pred_secant, sdf_pred_secant = self.secant(sdf_low, sdf_high, z_low, z_high, cam_loc_secant, ray_directions_secant, sdf)
+            secant_pts = secant_pts & (sdf_pred_secant >= 0.) & (sdf_pred_secant <= self.sdf_threshold)
+           
             # Get points
             sampler_pts[mask_intersect_idx[secant_pts]] = cam_loc_secant + z_pred_secant.unsqueeze(-1) * ray_directions_secant
             sampler_dists[mask_intersect_idx[secant_pts]] = z_pred_secant
@@ -292,7 +293,7 @@ class RayTracing(nn.Module):
             mask = (sdf_high - sdf_low) > 1e-10
             z_pred[mask] = (- sdf_low * (z_high - z_low) / (sdf_high - sdf_low) + z_low)[mask]
 
-        return z_pred
+        return z_low, sdf_low
 
     def minimal_sdf_points(self, num_pixels, sdf, cam_loc, ray_directions, mask, min_dis, max_dis):
         ''' Find points with minimal SDF value on rays for P_out pixels '''
